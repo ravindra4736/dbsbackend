@@ -9,270 +9,82 @@ datasource db {
 enum UserStatus {
   ACTIVE
   INACTIVE
-}
-
-enum BlogStatus {
-  DRAFT
-  REVIEW
-  PUBLISHED
-  ARCHIVED
-}
-
-enum PageStatus {
-  DRAFT
-  REVIEW
-  PUBLISHED
-  ARCHIVED
-}
-
-enum ScriptLocation {
-  HEAD
-  BODY_START
-  BODY_END
-}
-
-model User {
-  id                 String       @id @default(uuid())
-  email              String       @unique
-  password           String
-  firstName          String?
-  lastName           String?
-  isActive           Boolean      @default(true)
-  status             UserStatus   @default(ACTIVE)
-  refreshTokenHash   String?
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
-  deletedAt          DateTime?
-  roles              UserRole[]
-  blogs              Blog[]       @relation("AuthorBlogs")
-  media              Media[]      @relation("UploaderMedia")
-  auditLogs          AuditLog[]
+  SUSPENDED
 }
 
 model Role {
-  id          String           @id @default(uuid())
-  name        String           @unique
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
   description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  users       UserRole[]
-  permissions RolePermission[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+
+  @@map("roles")
 }
 
-model Permission {
-  id          String           @id @default(uuid())
-  name        String           @unique
-  description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  roles       RolePermission[]
-}
+model User {
+  id              String        @id @default(uuid())
+  firstName       String?
+  lastName        String?
+  email           String        @unique
+  passwordHash    String
+  roleId          String
+  role            Role          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  status          UserStatus    @default(ACTIVE)
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+  sessions        UserSession[]
+  activityLogs    ActivityLog[]
 
-model UserRole {
-  id        String   @id @default(uuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
-  role      Role     @relation(fields: [roleId], references: [id])
-  roleId    String
-  createdAt DateTime @default(now())
-
-  @@unique([userId, roleId])
-}
-
-model RolePermission {
-  id           String      @id @default(uuid())
-  role         Role        @relation(fields: [roleId], references: [id])
-  roleId       String
-  permission   Permission  @relation(fields: [permissionId], references: [id])
-  permissionId String
-  createdAt    DateTime    @default(now())
-
-  @@unique([roleId, permissionId])
-}
-
-model SeoMeta {
-  id               String   @id @default(uuid())
-  metaTitle        String?
-  metaDescription  String?
-  canonicalUrl     String?
-  robotsIndex      Boolean   @default(true)
-  robotsFollow     Boolean   @default(true)
-  ogTitle          String?
-  ogDescription    String?
-  ogImage          String?
-  twitterTitle     String?
-  twitterDescription String?
-  twitterImage     String?
-  schemaJson       Json?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  blogs  Blog[]
-  pages  Page[]
-}
-
-model Category {
-  id          String       @id @default(uuid())
-  name        String
-  slug        String       @unique
-  description String?
-  blogs       BlogCategory[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  deletedAt   DateTime?
-}
-
-model Tag {
-  id        String       @id @default(uuid())
-  name      String
-  slug      String       @unique
-  blogs     BlogTag[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-}
-
-model Blog {
-  id             String         @id @default(uuid())
-  title          String
-  slug           String         @unique
-  excerpt        String?
-  content        String?
-  featuredImage  String?
-  status         BlogStatus     @default(DRAFT)
-  publishedAt    DateTime?
-  author         User           @relation("AuthorBlogs", fields: [authorId], references: [id])
-  authorId       String
-  seo            SeoMeta?       @relation(fields: [seoId], references: [id])
-  seoId          String?
-  categories     BlogCategory[]
-  tags           BlogTag[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  deletedAt      DateTime?
-
+  @@index([email])
+  @@index([roleId])
   @@index([status])
-  @@index([publishedAt])
+  @@index([deletedAt])
+  @@map("users")
 }
 
-model BlogCategory {
-  id         String   @id @default(uuid())
-  blog       Blog     @relation(fields: [blogId], references: [id])
-  blogId     String
-  category   Category @relation(fields: [categoryId], references: [id])
-  categoryId String
-  createdAt  DateTime @default(now())
+model UserSession {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @db.VarChar(255)
+  ipAddress        String?
+  userAgent        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
 
-  @@unique([blogId, categoryId])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("user_sessions")
 }
 
-model BlogTag {
-  id        String   @id @default(uuid())
-  blog      Blog     @relation(fields: [blogId], references: [id])
-  blogId    String
-  tag       Tag      @relation(fields: [tagId], references: [id])
-  tagId     String
-  createdAt DateTime @default(now())
-
-  @@unique([blogId, tagId])
-}
-
-model Page {
-  id          String     @id @default(uuid())
-  title       String
-  slug        String     @unique
-  content     String?
-  status      PageStatus @default(DRAFT)
-  seo         SeoMeta?   @relation(fields: [seoId], references: [id])
-  seoId       String?
-  publishedAt DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  deletedAt   DateTime?
-}
-
-model Media {
+model ActivityLog {
   id          String   @id @default(uuid())
-  filename    String
-  path        String
-  url         String
-  folder      String?
-  type        String
-  mimeType    String
-  size        Int
-  width       Int?
-  height      Int?
-  metadata    Json?
-  uploader    User     @relation("UploaderMedia", fields: [uploadedById], references: [id])
-  uploadedById String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String?
+  entityId    String?
+  description String?  @db.Text
+  oldValues   Json?
+  newValues   Json?
+  ipAddress   String?
+  userAgent   String?
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
 
-model Menu {
-  id        String     @id @default(uuid())
-  name      String
-  slug      String     @unique
-  items     MenuItem[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-}
-
-model MenuItem {
-  id          String    @id @default(uuid())
-  menu        Menu      @relation(fields: [menuId], references: [id])
-  menuId      String
-  parent      MenuItem? @relation("MenuItemParent", fields: [parentId], references: [id])
-  parentId    String?
-  label       String
-  url         String
-  external    Boolean   @default(false)
-  order       Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  children    MenuItem[] @relation("MenuItemParent")
-}
-
-model Redirect {
-  id             String   @id @default(uuid())
-  sourceUrl      String   @unique
-  destinationUrl String
-  statusCode     Int      @default(301)
-  enabled        Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model Script {
-  id        String         @id @default(uuid())
-  name      String
-  location  ScriptLocation
-  code      String
-  enabled   Boolean        @default(true)
-  priority  Int            @default(100)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-}
-
-model Setting {
-  id          String   @id @default(uuid())
-  key         String   @unique
-  value       Json
-  group       String?
-  label       String?
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model AuditLog {
-  id         String   @id @default(uuid())
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
-  action     String
-  entity     String?
-  entityId   String?
-  ipAddress  String?
-  userAgent  String?
-  metadata   Json?
-  createdAt  DateTime @default(now())
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+  @@map("activity_logs")
 }

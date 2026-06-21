@@ -1,51 +1,73 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { RolesService } from './roles.service';
+import { CreateRoleDto } from './dto/create-role.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('roles')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('super-admin', 'admin')
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Get()
-  findAll() {
-    return this.rolesService.findAll();
+  async findAll() {
+    const data = await this.rolesService.findAll();
+    return {
+      success: true,
+      message: 'Roles retrieved successfully',
+      data,
+    };
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.rolesService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const data = await this.rolesService.findOne(id);
+    return {
+      success: true,
+      message: 'Role retrieved successfully',
+      data,
+    };
   }
 
   @Post()
-  create(@Body() body: { name: string; description?: string }) {
-    return this.rolesService.create(body);
+  async create(@Body() dto: CreateRoleDto) {
+    const data = await this.rolesService.create(dto);
+    return {
+      success: true,
+      message: 'Role created successfully',
+      data,
+    };
   }
 
   @Put(':id')
-  update(
-    @Param('id') id: string,
-    @Body() body: { name?: string; description?: string },
-  ) {
-    return this.rolesService.update(id, body);
+  async update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
+    const data = await this.rolesService.update(id, dto);
+    return {
+      success: true,
+      message: 'Role updated successfully',
+      data,
+    };
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.rolesService.remove(id);
-  }
-
-  @Post(':id/permissions/:permissionId')
-  assignPermission(
-    @Param('id') roleId: string,
-    @Param('permissionId') permissionId: string,
-  ) {
-    return this.rolesService.assignPermission(roleId, permissionId);
-  }
-
-  @Delete(':id/permissions/:permissionId')
-  removePermission(
-    @Param('id') roleId: string,
-    @Param('permissionId') permissionId: string,
-  ) {
-    return this.rolesService.removePermission(roleId, permissionId);
+  async remove(@Param('id') id: string) {
+    const data = await this.rolesService.remove(id);
+    return {
+      success: true,
+      message: data.message,
+      data: null,
+    };
   }
 }

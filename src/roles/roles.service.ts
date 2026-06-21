@@ -1,47 +1,119 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateRoleDto } from './dto/create-role.dto';
+import { UpdateRoleDto } from './dto/update-role.dto';
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+const DEFAULT_ROLE_SLUGS = ['super-admin', 'admin', 'editor', 'author', 'seo-manager'];
 
 @Injectable()
 export class RolesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  async findAll() {
     return this.prisma.role.findMany({
-      include: { permissions: { include: { permission: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  findOne(id: string) {
-    return this.prisma.role.findUnique({
+  async findOne(id: string) {
+    const role = await this.prisma.role.findUnique({
       where: { id },
-      include: { permissions: { include: { permission: true } } },
+    });
+    if (!role) {
+      throw new NotFoundException(`Role with ID "${id}" not found`);
+    }
+    return role;
+  }
+
+  async create(dto: CreateRoleDto) {
+    const slug = slugify(dto.name);
+    
+    // Check if role name or slug already exists
+    const existing = await this.prisma.role.findFirst({
+      where: {
+        OR: [{ slug }, { name: dto.name }],
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException('A role with this name or slug already exists');
+    }
+
+    return this.prisma.role.create({
+      data: {
+        name: dto.name,
+        slug,
+        description: dto.description,
+      },
     });
   }
 
-  create(data: { name: string; description?: string }) {
-    return this.prisma.role.create({ data });
-  }
+  async update(id: string, dto: UpdateRoleDto) {
+    const role = await this.findOne(id);
 
-  update(id: string, data: { name?: string; description?: string }) {
-    return this.prisma.role.update({ where: { id }, data });
-  }
+    // If updating default role name/slug, throw exception to preserve system roles integrity
+    if (DEFAULT_ROLE_SLUGS.includes(role.slug) && dto.name && slugify(dto.name) !== role.slug) {
+      throw new BadRequestException('System default roles cannot have their name or slug modified.');
+    }
 
-  remove(id: string) {
-    return this.prisma.role.delete({ where: { id } });
-  }
+    const data: any = {};
+    if (dto.description !== undefined) {
+      data.description = dto.description;
+    }
 
-  async assignPermission(roleId: string, permissionId: string) {
-    return this.prisma.rolePermission.upsert({
-      where: { roleId_permissionId: { roleId, permissionId } },
-      create: { roleId, permissionId },
-      update: {},
+    if (dto.name) {
+      const slug = slugify(dto.name);
+      
+      const existing = await this.prisma.role.findFirst({
+        where: {
+          id: { not: id },
+          OR: [{ slug }, { name: dto.name }],
+        },
+      });
+
+      if (existing) {
+        throw new ConflictException('A role with this name or slug already exists');
+      }
+
+      data.name = dto.name;
+      data.slug = slug;
+    }
+
+    return this.prisma.role.update({
+      where: { id },
+      data,
     });
   }
 
-  removePermission(roleId: string, permissionId: string) {
-    return this.prisma.rolePermission.delete({
-      where: { roleId_permissionId: { roleId, permissionId } },
+  async remove(id: string) {
+    const role = await this.findOne(id);
+
+    // Protect default roles from deletion
+    if (DEFAULT_ROLE_SLUGS.includes(role.slug)) {
+      throw new BadRequestException('System default roles cannot be deleted.');
+    }
+
+    // Protect assigned roles from deletion
+    const assignedUsersCount = await this.prisma.user.count({
+      where: { roleId: id },
     });
+
+    if (assignedUsersCount > 0) {
+      throw new BadRequestException('Cannot delete role because it is assigned to one or more users.');
+    }
+
+    await this.prisma.role.delete({
+      where: { id },
+    });
+
+    return { message: 'Role deleted successfully' };
   }
 }

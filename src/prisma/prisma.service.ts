@@ -14,8 +14,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     const parsed = new URL(url);
     const adapterOptions: any = {
       host: parsed.hostname,
-      user: parsed.username || undefined,
-      password: parsed.password || undefined,
+      user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      allowPublicKeyRetrieval: true,
     };
     if (parsed.pathname && parsed.pathname !== '/') {
       adapterOptions.database = parsed.pathname.replace(/^\//, '');
