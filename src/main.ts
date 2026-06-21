@@ -7,6 +7,8 @@ import {
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
 
 import { AppModule } from './app.module';
@@ -36,7 +38,28 @@ async function bootstrap() {
     credentials: true,
   });
 
+  await app.register(fastifyStatic, {
+    root: join(__dirname, '..', 'public'),
+    prefix: '/assets/',
+    wildcard: false,
+  });
+
   app.setGlobalPrefix('api/v1');
+
+  const fastifyInstance = app.getHttpAdapter().getInstance();
+  fastifyInstance.get('/', (_, reply) => {
+    return reply.sendFile('index.html');
+  });
+
+  fastifyInstance.get('/*', (request, reply) => {
+    const rawUrl = request.raw.url || '';
+    if (rawUrl.startsWith('/api/v1') || rawUrl.startsWith('/assets/')) {
+      return reply.callNotFound();
+    }
+
+    return reply.sendFile('index.html');
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
