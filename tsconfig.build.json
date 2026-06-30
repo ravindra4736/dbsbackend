@@ -1,4 +1,29 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts","prisma.config.ts"]
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    "prisma.config.ts",
+    "prisma/**",
+    "src/activities/**",
+    "src/audit/**",
+    "src/blog/**",
+    "src/dashboard/**",
+    "src/media/**",
+    "src/menus/**",
+    "src/pages/**",
+    "src/permissions/**",
+    "src/redirects/**",
+    "src/robots/**",
+    "src/scripts/**",
+    "src/search/**",
+    "src/seo/**",
+    "src/settings/**",
+    "src/sitemap/**"
+  ]
 }

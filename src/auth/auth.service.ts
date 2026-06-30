@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import type { StringValue } from 'ms';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 
@@ -16,6 +17,13 @@ import { UsersService } from '../users/users.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+type JwtPayload = {
+  sub: string;
+  email: string;
+  role: string;
+  sessionId: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -72,13 +80,34 @@ export class AuthService {
     const user = await this.usersService.findByEmailWithPassword(dto.email);
 
     if (!user || !(await argon2.verify(user.passwordHash, dto.password))) {
+      await this.activityLogsService.log({
+        userId: user?.id,
+        action: 'LOGIN_FAILED',
+        description: `Failed login attempt from IP: ${ipAddress}`,
+        ipAddress,
+        userAgent,
+      });
       throw new UnauthorizedException('Invalid email or password.');
     }
 
     // Check account status
     if (user.status === 'INACTIVE') {
+      await this.activityLogsService.log({
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        description: `Inactive user login attempt from IP: ${ipAddress}`,
+        ipAddress,
+        userAgent,
+      });
       throw new ForbiddenException('Your account is inactive. Please contact an administrator.');
     } else if (user.status === 'SUSPENDED') {
+      await this.activityLogsService.log({
+        userId: user.id,
+        action: 'LOGIN_FAILED',
+        description: `Suspended user login attempt from IP: ${ipAddress}`,
+        ipAddress,
+        userAgent,
+      });
       throw new ForbiddenException('Your account is suspended. Please contact an administrator.');
     }
 
@@ -193,22 +222,9 @@ export class AuthService {
       }
 
       // RTR: generate new tokens
-      const jwtPayload = {
-        sub: user.id,
-        email: user.email,
-        roles: [user.role.slug],
-        sessionId: session.id,
-      };
-
-      const accessToken = await this.jwtService.signAsync(jwtPayload, {
-        secret: this.configService.get<string>('jwt.secret'),
-        expiresIn: this.configService.get<string>('jwt.expiresIn'),
-      });
-
-      const newRefreshToken = await this.jwtService.signAsync(jwtPayload, {
-        secret: this.configService.get<string>('jwt.refreshSecret'),
-        expiresIn: this.configService.get<string>('jwt.refreshExpiresIn'),
-      });
+      const jwtPayload = this.createJwtPayload(user.id, user.email, user.role.slug, session.id);
+      const accessToken = await this.signAccessToken(jwtPayload);
+      const newRefreshToken = await this.signRefreshToken(jwtPayload);
 
       const newRefreshTokenHash = await argon2.hash(newRefreshToken);
       const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
@@ -289,10 +305,11 @@ export class AuthService {
     // Remove reset token from cache
     await this.redisService.del(cacheKey);
 
-    // Log Password Change activity
+    await this.revokeAllSessions(userId);
+
     await this.activityLogsService.log({
       userId,
-      action: 'CHANGE_PASSWORD',
+      action: 'RESET_PASSWORD',
       description: 'Password reset completed via token request',
     });
 
@@ -309,22 +326,9 @@ export class AuthService {
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-    const payload = {
-      sub: userId,
-      email: user.email,
-      roles: [user.role.slug],
-      sessionId,
-    };
-
-    const accessToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('jwt.secret'),
-      expiresIn: this.configService.get<string>('jwt.expiresIn'),
-    });
-
-    const refreshToken = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('jwt.refreshSecret'),
-      expiresIn: this.configService.get<string>('jwt.refreshExpiresIn'),
-    });
+    const payload = this.createJwtPayload(userId, user.email, user.role.slug, sessionId);
+    const accessToken = await this.signAccessToken(payload);
+    const refreshToken = await this.signRefreshToken(payload);
 
     const refreshTokenHash = await argon2.hash(refreshToken);
 
@@ -386,12 +390,57 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    // Find and delete all active session keys in Redis
-    const pattern = `session:active:${userId}:*`;
-    const client = this.redisService.getClient();
-    const keys = await client.keys(pattern);
-    if (keys.length > 0) {
-      await client.del(...keys);
+    await this.redisService.delByPattern(`session:active:${userId}:*`);
+  }
+
+  private createJwtPayload(
+    userId: string,
+    email: string,
+    role: string,
+    sessionId: string,
+  ): JwtPayload {
+    return {
+      sub: userId,
+      email,
+      role,
+      sessionId,
+    };
+  }
+
+  private signAccessToken(payload: JwtPayload) {
+    return this.jwtService.signAsync(payload, {
+      secret: this.getRequiredConfig('jwt.secret'),
+      expiresIn: this.getJwtExpiration('jwt.expiresIn'),
+    });
+  }
+
+  private signRefreshToken(payload: JwtPayload) {
+    return this.jwtService.signAsync(payload, {
+      secret: this.getRequiredConfig('jwt.refreshSecret'),
+      expiresIn: this.getJwtExpiration('jwt.refreshExpiresIn'),
+    });
+  }
+
+  private getRequiredConfig(key: string): string {
+    const value = this.configService.get<string>(key);
+    if (!value) {
+      throw new Error(`Missing required configuration: ${key}`);
     }
+    return value;
+  }
+
+  private getJwtExpiration(key: string): StringValue | number {
+    const value = this.getRequiredConfig(key);
+    const numericValue = Number(value);
+
+    if (Number.isFinite(numericValue)) {
+      return numericValue;
+    }
+
+    if (!/^\d+(?:\.\d+)?\s*(?:ms|s|m|h|d|w|y)$/i.test(value)) {
+      throw new Error(`Invalid JWT expiration configuration: ${key}`);
+    }
+
+    return value as StringValue;
   }
 }

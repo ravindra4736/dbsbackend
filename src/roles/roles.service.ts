@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 
 function slugify(text: string): string {
   return text
@@ -15,7 +16,10 @@ const DEFAULT_ROLE_SLUGS = ['super-admin', 'admin', 'editor', 'author', 'seo-man
 
 @Injectable()
 export class RolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly activityLogsService: ActivityLogsService,
+  ) {}
 
   async findAll() {
     return this.prisma.role.findMany({
@@ -33,7 +37,7 @@ export class RolesService {
     return role;
   }
 
-  async create(dto: CreateRoleDto) {
+  async create(dto: CreateRoleDto, actorId?: string) {
     const slug = slugify(dto.name);
     
     // Check if role name or slug already exists
@@ -47,16 +51,26 @@ export class RolesService {
       throw new ConflictException('A role with this name or slug already exists');
     }
 
-    return this.prisma.role.create({
+    const role = await this.prisma.role.create({
       data: {
         name: dto.name,
         slug,
         description: dto.description,
       },
     });
+
+    await this.activityLogsService.log({
+      userId: actorId,
+      action: 'CREATE_ROLE',
+      entityType: 'Role',
+      entityId: role.id,
+      newValues: role,
+    });
+
+    return role;
   }
 
-  async update(id: string, dto: UpdateRoleDto) {
+  async update(id: string, dto: UpdateRoleDto, actorId?: string) {
     const role = await this.findOne(id);
 
     // If updating default role name/slug, throw exception to preserve system roles integrity
@@ -87,13 +101,24 @@ export class RolesService {
       data.slug = slug;
     }
 
-    return this.prisma.role.update({
+    const updatedRole = await this.prisma.role.update({
       where: { id },
       data,
     });
+
+    await this.activityLogsService.log({
+      userId: actorId,
+      action: 'UPDATE_ROLE',
+      entityType: 'Role',
+      entityId: id,
+      oldValues: role,
+      newValues: updatedRole,
+    });
+
+    return updatedRole;
   }
 
-  async remove(id: string) {
+  async remove(id: string, actorId?: string) {
     const role = await this.findOne(id);
 
     // Protect default roles from deletion
@@ -112,6 +137,14 @@ export class RolesService {
 
     await this.prisma.role.delete({
       where: { id },
+    });
+
+    await this.activityLogsService.log({
+      userId: actorId,
+      action: 'DELETE_ROLE',
+      entityType: 'Role',
+      entityId: id,
+      oldValues: role,
     });
 
     return { message: 'Role deleted successfully' };
