@@ -2,6 +2,7 @@ module.exports = {
   apps: [
     {
       name: "dbsbackend",
+      cwd: __dirname,
       script: "dist/main.js",
       interpreter: "node",
       instances: 1,

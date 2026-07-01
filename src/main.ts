@@ -21,6 +21,9 @@ async function bootstrap() {
     new FastifyAdapter(),
   );
 
+  // Enable graceful shutdown hooks as soon as the Nest app is created.
+  app.enableShutdownHooks();
+
   const configService = app.get(ConfigService);
 
   // Secure HTTP Headers using Helmet
@@ -100,8 +103,6 @@ async function bootstrap() {
   const port = configService.get<number>('app.port');
   const host = '0.0.0.0';
 
-  // Graceful Shutdown
-  app.enableShutdownHooks();
   await app.listen({ port, host });
 }
 
