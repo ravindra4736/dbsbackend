@@ -1,12 +1,13 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
   @Get()
-  async getHello() {
-    return this.appService.getHello();
+  getRoot() {
+    return {
+      name: 'DBS CMS Backend API',
+      version: '1.0.0',
+      status: 'running',
+    };
   }
 }

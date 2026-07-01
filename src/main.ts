@@ -1,4 +1,4 @@
-import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
   FastifyAdapter,
@@ -41,20 +41,19 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Static Assets Folder
+  // Static Assets Folder (uploads/)
   await app.register(fastifyStatic, {
-    root: join(__dirname, '..', 'public'),
-    prefix: '/assets/',
+    root: join(__dirname, '..', 'uploads'),
+    prefix: '/uploads/',
     wildcard: false,
   });
 
-  // Global Route Prefix
-  app.setGlobalPrefix('api/v1');
-
-  // Basic Fastify Fallback Routing
-  const fastifyInstance = app.getHttpAdapter().getInstance();
-  fastifyInstance.get('/', (_, reply) => {
-    return reply.send({ success: true, message: 'DBS CMS API Foundation' });
+  // Global Route Prefix for API endpoints
+  app.setGlobalPrefix('api/v1', {
+    exclude: [
+      { path: '/', method: RequestMethod.GET },
+      { path: 'health', method: RequestMethod.GET },
+    ],
   });
 
   // Global Interceptors & Exception Filters
@@ -101,6 +100,8 @@ async function bootstrap() {
   const port = configService.get<number>('app.port');
   const host = '0.0.0.0';
 
+  // Graceful Shutdown
+  app.enableShutdownHooks();
   await app.listen({ port, host });
 }
 
