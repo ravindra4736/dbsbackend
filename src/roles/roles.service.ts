@@ -62,9 +62,9 @@ export class RolesService {
     await this.activityLogsService.log({
       userId: actorId,
       action: 'CREATE_ROLE',
-      entityType: 'Role',
-      entityId: role.id,
-      newValues: role,
+      resource: 'Role',
+      resourceId: role.id,
+      metadata: role,
     });
 
     return role;
@@ -109,10 +109,9 @@ export class RolesService {
     await this.activityLogsService.log({
       userId: actorId,
       action: 'UPDATE_ROLE',
-      entityType: 'Role',
-      entityId: id,
-      oldValues: role,
-      newValues: updatedRole,
+      resource: 'Role',
+      resourceId: id,
+      metadata: { oldValues: role, newValues: updatedRole },
     });
 
     return updatedRole;
@@ -127,7 +126,7 @@ export class RolesService {
     }
 
     // Protect assigned roles from deletion
-    const assignedUsersCount = await this.prisma.user.count({
+    const assignedUsersCount = await this.prisma.userRole.count({
       where: { roleId: id },
     });
 
@@ -142,9 +141,9 @@ export class RolesService {
     await this.activityLogsService.log({
       userId: actorId,
       action: 'DELETE_ROLE',
-      entityType: 'Role',
-      entityId: id,
-      oldValues: role,
+      resource: 'Role',
+      resourceId: id,
+      metadata: { oldValues: role },
     });
 
     return { message: 'Role deleted successfully' };

@@ -6,61 +6,103 @@ datasource db {
   provider = "mysql"
 }
 
-enum UserStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
-
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  slug        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  users       User[]
+  id              String           @id @default(uuid())
+  name            String           @unique
+  slug            String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  isProtected     Boolean          @default(false)
+  isSystem        Boolean          @default(false)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
 
   @@map("roles")
 }
 
 model User {
-  id              String        @id @default(uuid())
-  firstName       String?
-  lastName        String?
-  email           String        @unique
-  passwordHash    String
-  roleId          String
-  role            Role          @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  status          UserStatus    @default(ACTIVE)
-  emailVerifiedAt DateTime?
-  lastLoginAt     DateTime?
-  lastLoginIp     String?
-  createdBy       String?
-  updatedBy       String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  deletedAt       DateTime?
-  sessions        UserSession[]
-  activityLogs    ActivityLog[]
+  id                String        @id @default(uuid())
+  firstName         String?
+  lastName          String?
+  email             String        @unique
+  passwordHash      String
+  status            UserStatus    @default(ACTIVE)
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+  lastLoginIp       String?
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  passwordChangedAt DateTime?
+  activityLogs      ActivityLog[]
+  userRoles         UserRole[]
+  sessions          UserSession[]
 
   @@index([email])
-  @@index([roleId])
   @@index([status])
   @@index([deletedAt])
   @@map("users")
 }
 
+model UserRole {
+  id         String   @id @default(uuid())
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  slug            String           @unique
+  description     String?
+  resource        String
+  action          String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+
+  @@index([resource])
+  @@index([action])
+  @@index([slug])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  assignedAt   DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
 model UserSession {
   id               String    @id @default(uuid())
   userId           String
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String    @db.VarChar(255)
   ipAddress        String?
   userAgent        String?
   expiresAt        DateTime
   revokedAt        DateTime?
   createdAt        DateTime  @default(now())
+  lastActivity     DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -69,22 +111,27 @@ model UserSession {
 }
 
 model ActivityLog {
-  id          String   @id @default(uuid())
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action      String
-  entityType  String?
-  entityId    String?
-  description String?  @db.Text
-  oldValues   Json?
-  newValues   Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  metadata   Json?
+  resource   String?
+  resourceId String?
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([action])
-  @@index([entityType])
+  @@index([userId, createdAt])
+  @@index([resource])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
 }

@@ -21,7 +21,7 @@ import { RegisterDto } from './dto/register.dto';
 type JwtPayload = {
   sub: string;
   email: string;
-  role: string;
+  roles: string[];
   sessionId: string;
 };
 
@@ -63,16 +63,32 @@ export class AuthService {
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName || null,
-        roleId: authorRole.id,
         status: 'ACTIVE',
       },
+    });
+
+    // Assign author role via UserRole junction table
+    await this.prisma.userRole.create({
+      data: {
+        userId: user.id,
+        roleId: authorRole.id,
+      },
+    });
+
+    // Fetch user with roles
+    const userWithRoles = await this.prisma.user.findUnique({
+      where: { id: user.id },
       include: {
-        role: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
 
     // Create session & generate tokens
-    const tokens = await this.createSession(user.id, user, '0.0.0.0', 'Registration');
+    const tokens = await this.createSession(user.id, userWithRoles, '0.0.0.0', 'Registration');
     return tokens;
   }
 
@@ -83,7 +99,9 @@ export class AuthService {
       await this.activityLogsService.log({
         userId: user?.id,
         action: 'LOGIN_FAILED',
-        description: `Failed login attempt from IP: ${ipAddress}`,
+        resource: 'User',
+        resourceId: user?.id,
+        metadata: { message: `Failed login attempt from IP: ${ipAddress}` },
         ipAddress,
         userAgent,
       });
@@ -95,7 +113,9 @@ export class AuthService {
       await this.activityLogsService.log({
         userId: user.id,
         action: 'LOGIN_FAILED',
-        description: `Inactive user login attempt from IP: ${ipAddress}`,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { message: `Inactive user login attempt from IP: ${ipAddress}` },
         ipAddress,
         userAgent,
       });
@@ -104,7 +124,9 @@ export class AuthService {
       await this.activityLogsService.log({
         userId: user.id,
         action: 'LOGIN_FAILED',
-        description: `Suspended user login attempt from IP: ${ipAddress}`,
+        resource: 'User',
+        resourceId: user.id,
+        metadata: { message: `Suspended user login attempt from IP: ${ipAddress}` },
         ipAddress,
         userAgent,
       });
@@ -121,7 +143,9 @@ export class AuthService {
     await this.activityLogsService.log({
       userId: user.id,
       action: 'LOGIN',
-      description: `User logged in from IP: ${ipAddress}`,
+      resource: 'User',
+      resourceId: user.id,
+      metadata: { message: `User logged in from IP: ${ipAddress}` },
       ipAddress,
       userAgent,
     });
@@ -135,7 +159,9 @@ export class AuthService {
     await this.activityLogsService.log({
       userId,
       action: 'LOGOUT',
-      description: `User logged out of session: ${sessionId}`,
+      resource: 'UserSession',
+      resourceId: sessionId,
+      metadata: { message: `User logged out of session: ${sessionId}` },
       ipAddress,
       userAgent,
     });
@@ -149,7 +175,9 @@ export class AuthService {
     await this.activityLogsService.log({
       userId,
       action: 'LOGOUT',
-      description: `User logged out of all devices`,
+      resource: 'User',
+      resourceId: userId,
+      metadata: { message: `User logged out of all devices` },
       ipAddress,
       userAgent,
     });
@@ -214,7 +242,13 @@ export class AuthService {
       // 3. Generate new tokens
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        include: { role: true },
+        include: {
+          userRoles: {
+            include: {
+              role: true,
+            },
+          },
+        },
       });
 
       if (!user || user.status !== 'ACTIVE' || user.deletedAt) {
@@ -222,7 +256,11 @@ export class AuthService {
       }
 
       // RTR: generate new tokens
-      const jwtPayload = this.createJwtPayload(user.id, user.email, user.role.slug, session.id);
+      if (!user.userRoles || user.userRoles.length === 0) {
+        throw new UnauthorizedException('User has no assigned roles.');
+      }
+      const roles = user.userRoles.map((ur: any) => ur.role.slug);
+      const jwtPayload = this.createJwtPayload(user.id, user.email, roles, session.id);
       const accessToken = await this.signAccessToken(jwtPayload);
       const newRefreshToken = await this.signRefreshToken(jwtPayload);
 
@@ -261,7 +299,7 @@ export class AuthService {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          role: user.role.slug,
+          roles,
         },
       };
     } catch (e) {
@@ -310,7 +348,9 @@ export class AuthService {
     await this.activityLogsService.log({
       userId,
       action: 'RESET_PASSWORD',
-      description: 'Password reset completed via token request',
+      resource: 'User',
+      resourceId: userId,
+      metadata: { message: 'Password reset completed via token request' },
     });
 
     return { message: 'Password has been reset successfully.' };
@@ -326,7 +366,12 @@ export class AuthService {
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-    const payload = this.createJwtPayload(userId, user.email, user.role.slug, sessionId);
+    if (!user.userRoles || user.userRoles.length === 0) {
+      throw new Error('User must have at least one role assigned.');
+    }
+
+    const roles = user.userRoles.map((ur: any) => ur.role.slug);
+    const payload = this.createJwtPayload(userId, user.email, roles, sessionId);
     const accessToken = await this.signAccessToken(payload);
     const refreshToken = await this.signRefreshToken(payload);
 
@@ -366,7 +411,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role.slug,
+        roles,
       },
     };
   }
@@ -396,13 +441,13 @@ export class AuthService {
   private createJwtPayload(
     userId: string,
     email: string,
-    role: string,
+    roles: string[],
     sessionId: string,
   ): JwtPayload {
     return {
       sub: userId,
       email,
-      role,
+      roles,
       sessionId,
     };
   }

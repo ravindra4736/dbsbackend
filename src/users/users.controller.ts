@@ -39,7 +39,8 @@ export class UsersController {
   @Get(':id')
   async findOne(@Param('id') id: string, @User() currentUser: any) {
     // A user can only fetch their own details unless they are an admin
-    const isAdmin = currentUser.role === 'super-admin' || currentUser.role === 'admin';
+    const isAdmin =
+      currentUser.roles.includes('super-admin') || currentUser.roles.includes('admin');
     if (!isAdmin && currentUser.userId !== id) {
       throw new ForbiddenException('Access denied. You can only view your own profile.');
     }
@@ -69,16 +70,11 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @User() currentUser: any,
   ) {
-    const isAdmin = currentUser.role === 'super-admin' || currentUser.role === 'admin';
-    
-    // A user can only update their own profile unless they are an admin
-    if (!isAdmin && currentUser.userId !== id) {
-      throw new ForbiddenException('Access denied. You can only update your own profile.');
-    }
-
+    const isAdmin =
+      currentUser.roles.includes('super-admin') || currentUser.roles.includes('admin');
     // A non-admin cannot update role or status
     if (!isAdmin) {
-      if (dto.roleId || dto.status) {
+      if (dto.roleIds || dto.status) {
         throw new ForbiddenException('Access denied. Non-admin users cannot change roles or status.');
       }
     }

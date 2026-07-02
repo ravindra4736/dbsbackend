@@ -15,8 +15,8 @@ export class UpdateUserDto {
   lastName?: string;
 
   @IsOptional()
-  @IsUUID()
-  roleId?: string;
+  @IsUUID('4', { each: true })
+  roleIds?: string[];
 
   @IsOptional()
   @IsEnum(UserStatus)

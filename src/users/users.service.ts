@@ -30,13 +30,13 @@ export class UsersService {
       throw new ConflictException('Email is already registered.');
     }
 
-    // Verify role exists
-    const role = await this.prisma.role.findUnique({
-      where: { id: dto.roleId },
+    // Verify all roles exist
+    const roles = await this.prisma.role.findMany({
+      where: { id: { in: dto.roleIds } },
     });
 
-    if (!role) {
-      throw new NotFoundException('Specified role not found.');
+    if (roles.length !== dto.roleIds.length) {
+      throw new NotFoundException('One or more specified roles not found.');
     }
 
     const passwordHash = await argon2.hash(dto.password);
@@ -47,12 +47,28 @@ export class UsersService {
         passwordHash,
         firstName: dto.firstName || null,
         lastName: dto.lastName || null,
-        roleId: dto.roleId,
         status: dto.status || 'ACTIVE',
         createdBy: creatorId || null,
       },
+    });
+
+    // Create UserRole records
+    await this.prisma.userRole.createMany({
+      data: dto.roleIds.map((roleId) => ({
+        userId: user.id,
+        roleId,
+      })),
+    });
+
+    // Fetch user with roles
+    const userWithRoles = await this.prisma.user.findUnique({
+      where: { id: user.id },
       include: {
-        role: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
 
@@ -60,18 +76,18 @@ export class UsersService {
     await this.activityLogsService.log({
       userId: creatorId,
       action: 'CREATE_USER',
-      entityType: 'User',
-      entityId: user.id,
-      newValues: {
+      resource: 'User',
+      resourceId: user.id,
+      metadata: {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role.slug,
+        roles: userWithRoles.userRoles.map((ur) => ur.role.slug),
         status: user.status,
       },
     });
 
-    return this.sanitizeUser(user);
+    return this.sanitizeUser(userWithRoles);
   }
 
   async findAll(query: GetUsersQueryDto) {
@@ -88,7 +104,11 @@ export class UsersService {
     }
 
     if (query.roleId) {
-      where.roleId = query.roleId;
+      where.userRoles = {
+        some: {
+          roleId: query.roleId,
+        },
+      };
     }
 
     if (query.search) {
@@ -121,11 +141,15 @@ export class UsersService {
         take: limit,
         orderBy: { [sortBy!]: sortOrder },
         include: {
-          role: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
+          userRoles: {
+            include: {
+              role: {
+                select: {
+                  id: true,
+                  name: true,
+                  slug: true,
+                },
+              },
             },
           },
         },
@@ -149,7 +173,11 @@ export class UsersService {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
       include: {
-        role: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
 
@@ -164,7 +192,11 @@ export class UsersService {
     const user = await this.prisma.user.findFirst({
       where: { email: email.toLowerCase(), deletedAt: null },
       include: {
-        role: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
     return user;
@@ -177,7 +209,7 @@ export class UsersService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      roleId: user.roleId,
+      roles: user.userRoles.map((ur) => ur.role.slug),
       status: user.status,
     };
 
@@ -205,14 +237,28 @@ export class UsersService {
       }
     }
 
-    if (dto.roleId) {
-      const role = await this.prisma.role.findUnique({
-        where: { id: dto.roleId },
+    if (dto.roleIds) {
+      // Verify all roles exist
+      const roles = await this.prisma.role.findMany({
+        where: { id: { in: dto.roleIds } },
       });
-      if (!role) {
-        throw new NotFoundException('Specified role not found.');
+
+      if (roles.length !== dto.roleIds.length) {
+        throw new NotFoundException('One or more specified roles not found.');
       }
-      data.roleId = dto.roleId;
+
+      // Delete existing user roles
+      await this.prisma.userRole.deleteMany({
+        where: { userId: id },
+      });
+
+      // Create new user roles
+      await this.prisma.userRole.createMany({
+        data: dto.roleIds.map((roleId) => ({
+          userId: id,
+          roleId,
+        })),
+      });
     }
 
     if (dto.status) {
@@ -223,7 +269,11 @@ export class UsersService {
       where: { id },
       data,
       include: {
-        role: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
       },
     });
 
@@ -231,7 +281,7 @@ export class UsersService {
       email: updatedUser.email,
       firstName: updatedUser.firstName,
       lastName: updatedUser.lastName,
-      roleId: updatedUser.roleId,
+      roles: updatedUser.userRoles.map((ur) => ur.role.slug),
       status: updatedUser.status,
     };
 
@@ -239,10 +289,12 @@ export class UsersService {
     await this.activityLogsService.log({
       userId: updaterId,
       action: 'UPDATE_USER',
-      entityType: 'User',
-      entityId: id,
-      oldValues,
-      newValues,
+      resource: 'User',
+      resourceId: id,
+      metadata: {
+        oldValues,
+        newValues,
+      },
     });
 
     return this.sanitizeUser(updatedUser);
@@ -270,10 +322,9 @@ export class UsersService {
     await this.activityLogsService.log({
       userId: deleterId,
       action: 'DELETE_USER',
-      entityType: 'User',
-      entityId: id,
-      oldValues: { deletedAt: null },
-      newValues: { deletedAt: new Date() },
+      resource: 'User',
+      resourceId: id,
+      metadata: { oldValues: { deletedAt: null }, newValues: { deletedAt: new Date() } },
     });
 
     return { message: 'User deleted successfully' };
@@ -304,6 +355,15 @@ export class UsersService {
 
   private sanitizeUser(user: any) {
     const { passwordHash, ...rest } = user;
+    // Transform userRoles to a simpler format
+    if (rest.userRoles) {
+      rest.roles = rest.userRoles.map((ur: any) => ({
+        id: ur.role.id,
+        name: ur.role.name,
+        slug: ur.role.slug,
+      }));
+      delete rest.userRoles;
+    }
     return rest;
   }
 }

@@ -4,11 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface CreateActivityLogParams {
   userId?: string;
   action: string;
-  entityType?: string;
-  entityId?: string;
-  description?: string;
-  oldValues?: any;
-  newValues?: any;
+  resource?: string;
+  resourceId?: string;
+  metadata?: any;
   ipAddress?: string;
   userAgent?: string;
 }
@@ -18,7 +16,7 @@ export interface GetActivityLogsQuery {
   limit?: number;
   userId?: string;
   action?: string;
-  entityType?: string;
+  resource?: string;
 }
 
 @Injectable()
@@ -30,11 +28,9 @@ export class ActivityLogsService {
       data: {
         userId: data.userId || null,
         action: data.action,
-        entityType: data.entityType || null,
-        entityId: data.entityId || null,
-        description: data.description || null,
-        oldValues: data.oldValues || null,
-        newValues: data.newValues || null,
+        resource: data.resource || null,
+        resourceId: data.resourceId || null,
+        metadata: data.metadata || null,
         ipAddress: data.ipAddress || null,
         userAgent: data.userAgent || null,
       },
@@ -54,8 +50,8 @@ export class ActivityLogsService {
     if (query.action) {
       where.action = query.action;
     }
-    if (query.entityType) {
-      where.entityType = query.entityType;
+    if (query.resource) {
+      where.resource = query.resource;
     }
 
     const [total, items] = await Promise.all([
