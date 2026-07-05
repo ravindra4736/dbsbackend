@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
 import { UserStatus } from '@prisma/client';
 
 export class UpdateUserDto {
@@ -15,6 +15,7 @@ export class UpdateUserDto {
   lastName?: string;
 
   @IsOptional()
+  @IsArray()
   @IsUUID('4', { each: true })
   roleIds?: string[];
 
