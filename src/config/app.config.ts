@@ -8,5 +8,11 @@ export default () => ({
     uploadDriver: process.env.UPLOAD_DRIVER || 'local',
     uploadPath: process.env.UPLOAD_PATH || 'uploads',
     logLevel: process.env.LOG_LEVEL || 'info',
+    swaggerEnabled: process.env.SWAGGER_ENABLED === 'true',
+    httpsEnabled: process.env.HTTPS_ENABLED === 'true',
+    cookieSecure: process.env.COOKIE_SECURE === 'true',
+    helmetEnabled: process.env.HELMET_ENABLED !== 'false',
+    rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+    rateLimitWindow: process.env.RATE_LIMIT_WINDOW || '1 minute',
   },
 });

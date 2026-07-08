@@ -26,15 +26,20 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  // Secure HTTP Headers using Helmet
-  await app.register(helmet, {
-    contentSecurityPolicy: false,
-  });
+  // Secure HTTP Headers using Helmet (configurable)
+  const helmetEnabled = configService.get<boolean>('app.helmetEnabled') ?? true;
+  if (helmetEnabled) {
+    await app.register(helmet, {
+      contentSecurityPolicy: false,
+    });
+  }
 
-  // Global Rate Limiting
+  // Global Rate Limiting (configurable)
+  const rateLimitMax = configService.get<number>('app.rateLimitMax') ?? 100;
+  const rateLimitWindow = configService.get<string>('app.rateLimitWindow') ?? '1 minute';
   await app.register(rateLimit, {
-    max: 100,
-    timeWindow: '1 minute',
+    max: rateLimitMax,
+    timeWindow: rateLimitWindow,
   });
 
   // CORS Configuration
@@ -85,9 +90,9 @@ async function bootstrap() {
     }),
   );
 
-  // Environment-based Swagger Setup
-  const env = configService.get<string>('app.env') || 'local';
-  if (env === 'local' || env === 'staging') {
+  // Swagger Setup (configurable)
+  const swaggerEnabled = configService.get<boolean>('app.swaggerEnabled') ?? false;
+  if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('DBS CMS API')
       .setDescription('DBS CMS Backend Production API')
@@ -97,6 +102,20 @@ async function bootstrap() {
 
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
+  }
+
+  // HTTPS Enforcement (configurable)
+  const httpsEnabled = configService.get<boolean>('app.httpsEnabled') ?? false;
+  if (httpsEnabled) {
+    const fastifyInstance = app.getHttpAdapter().getInstance();
+    fastifyInstance.addHook('onRequest', (request, reply, done) => {
+      const protocol = request.headers['x-forwarded-proto'] || 'http';
+      if (protocol !== 'https') {
+        const httpsUrl = `https://${request.headers.host}${request.url}`;
+        return reply.redirect(httpsUrl);
+      }
+      done();
+    });
   }
 
   // Bind to Port

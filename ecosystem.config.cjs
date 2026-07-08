@@ -11,7 +11,13 @@ module.exports = {
       watch: false,
       max_memory_restart: "300M",
       env: {
-        NODE_ENV: "production"
+        APP_ENV: "production"
+      },
+      env_staging: {
+        APP_ENV: "staging"
+      },
+      env_local: {
+        APP_ENV: "local"
       }
     }
   ]
