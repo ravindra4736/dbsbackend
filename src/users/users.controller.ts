@@ -2,31 +2,40 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Post,
   Put,
   Query,
-  Req,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { GetUsersQueryDto } from './dto/get-users-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { User } from '../common/decorators/user.decorator';
+import { PERMISSIONS } from '../common/constants/permissions';
+import { PermissionResolverService } from '../authorization/permission-resolver.service';
+import type { AuthenticatedUser } from '../common/types/authorization.types';
 
+@ApiTags('users')
+@ApiBearerAuth()
 @Controller('users')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly permissionResolver: PermissionResolverService,
+  ) {}
 
   @Get()
-  @Roles('super-admin', 'admin')
+  @RequirePermissions(PERMISSIONS.USERS_VIEW)
+  @ApiOperation({ summary: 'List users' })
   async findAll(@Query() query: GetUsersQueryDto) {
     const data = await this.usersService.findAll(query);
     return {
@@ -37,13 +46,12 @@ export class UsersController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @User() currentUser: any) {
-    // A user can only fetch their own details unless they are an admin
-    const isAdmin =
-      currentUser.roles.includes('super-admin') || currentUser.roles.includes('admin');
-    if (!isAdmin && currentUser.userId !== id) {
-      throw new ForbiddenException('Access denied. You can only view your own profile.');
-    }
+  @ApiOperation({ summary: 'Get user by id (own profile or users.view)' })
+  async findOne(
+    @Param('id') id: string,
+    @User() currentUser: AuthenticatedUser,
+  ) {
+    await this.assertCanAccessUser(currentUser, id, PERMISSIONS.USERS_VIEW);
 
     const data = await this.usersService.findOne(id);
     return {
@@ -54,8 +62,12 @@ export class UsersController {
   }
 
   @Post()
-  @Roles('super-admin', 'admin')
-  async create(@Body() dto: CreateUserDto, @User() currentUser: any) {
+  @RequirePermissions(PERMISSIONS.USERS_CREATE)
+  @ApiOperation({ summary: 'Create user' })
+  async create(
+    @Body() dto: CreateUserDto,
+    @User() currentUser: AuthenticatedUser,
+  ) {
     const data = await this.usersService.create(dto, currentUser.userId);
     return {
       success: true,
@@ -65,18 +77,31 @@ export class UsersController {
   }
 
   @Put(':id')
+  @ApiOperation({
+    summary: 'Update user (own profile or users.update)',
+  })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-    @User() currentUser: any,
+    @User() currentUser: AuthenticatedUser,
   ) {
-    const isAdmin =
-      currentUser.roles.includes('super-admin') || currentUser.roles.includes('admin');
-    // A non-admin cannot update role or status
-    if (!isAdmin) {
-      if (dto.roleIds || dto.status) {
-        throw new ForbiddenException('Access denied. Non-admin users cannot change roles or status.');
-      }
+    const isSelf = currentUser.userId === id;
+    const canManage = await this.hasPermission(
+      currentUser,
+      PERMISSIONS.USERS_UPDATE,
+    );
+
+    if (!isSelf && !canManage) {
+      throw new ForbiddenException(
+        'Access denied. You can only update your own profile.',
+      );
+    }
+
+    // Role / status changes require users.update (not self-service)
+    if ((dto.roleIds || dto.status) && !canManage) {
+      throw new ForbiddenException(
+        'Access denied. You cannot change roles or status.',
+      );
     }
 
     const data = await this.usersService.update(id, dto, currentUser.userId);
@@ -88,8 +113,12 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles('super-admin', 'admin')
-  async remove(@Param('id') id: string, @User() currentUser: any) {
+  @RequirePermissions(PERMISSIONS.USERS_DELETE)
+  @ApiOperation({ summary: 'Delete user' })
+  async remove(
+    @Param('id') id: string,
+    @User() currentUser: AuthenticatedUser,
+  ) {
     if (currentUser.userId === id) {
       throw new ForbiddenException('You cannot delete your own account.');
     }
@@ -100,5 +129,33 @@ export class UsersController {
       message: data.message,
       data: null,
     };
+  }
+
+  private async hasPermission(
+    currentUser: AuthenticatedUser,
+    permission: string,
+  ): Promise<boolean> {
+    const resolved = await this.permissionResolver.resolveForUser(
+      currentUser.userId,
+      currentUser.roles || [],
+    );
+    return this.permissionResolver.hasPermission(resolved, [permission]);
+  }
+
+  private async assertCanAccessUser(
+    currentUser: AuthenticatedUser,
+    targetUserId: string,
+    permission: string,
+  ): Promise<void> {
+    if (currentUser.userId === targetUserId) {
+      return;
+    }
+
+    const allowed = await this.hasPermission(currentUser, permission);
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Access denied. You can only view your own profile.',
+      );
+    }
   }
 }

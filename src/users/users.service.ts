@@ -7,6 +7,8 @@ import {
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { RedisService } from '../redis/redis.service';
+import { PermissionResolverService } from '../authorization/permission-resolver.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { GetUsersQueryDto } from './dto/get-users-query.dto';
@@ -16,6 +18,8 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLogsService: ActivityLogsService,
+    private readonly redisService: RedisService,
+    private readonly permissionResolver: PermissionResolverService,
   ) {}
 
   async create(dto: CreateUserDto, creatorId?: string) {
@@ -231,7 +235,9 @@ export class UsersService {
           where: { email },
         });
         if (existing) {
-          throw new ConflictException('Email is already registered by another user.');
+          throw new ConflictException(
+            'Email is already registered by another user.',
+          );
         }
         data.email = email;
       }
@@ -259,6 +265,9 @@ export class UsersService {
           roleId,
         })),
       });
+
+      // Role assignment changed — drop cached effective permissions
+      await this.permissionResolver.invalidateUser(id);
     }
 
     if (dto.status) {
@@ -312,11 +321,11 @@ export class UsersService {
       },
     });
 
-    // Invalidate all active sessions
-    await this.prisma.userSession.updateMany({
-      where: { userId: id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    // Invalidate all active sessions (DB + Redis, same strategy as logout-all)
+    await this.revokeAllUserSessions(id);
+
+    // Drop permission cache for deleted user
+    await this.permissionResolver.invalidateUser(id);
 
     // Log Activity
     await this.activityLogsService.log({
@@ -324,7 +333,10 @@ export class UsersService {
       action: 'DELETE_USER',
       resource: 'User',
       resourceId: id,
-      metadata: { oldValues: { deletedAt: null }, newValues: { deletedAt: new Date() } },
+      metadata: {
+        oldValues: { deletedAt: null },
+        newValues: { deletedAt: new Date() },
+      },
     });
 
     return { message: 'User deleted successfully' };
@@ -336,11 +348,8 @@ export class UsersService {
       data: { passwordHash: newPasswordHash },
     });
 
-    // Revoke all active sessions
-    await this.prisma.userSession.updateMany({
-      where: { userId: id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    // Revoke all active sessions (DB + Redis, same strategy as logout-all)
+    await this.revokeAllUserSessions(id);
   }
 
   async updateLoginMetadata(id: string, ip: string) {
@@ -351,6 +360,19 @@ export class UsersService {
         lastLoginIp: ip,
       },
     });
+  }
+
+  /**
+   * Revoke all DB sessions and clear Redis session cache.
+   * Mirrors AuthService.revokeAllSessions Redis strategy.
+   */
+  private async revokeAllUserSessions(userId: string) {
+    await this.prisma.userSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await this.redisService.delByPattern(`session:active:${userId}:*`);
   }
 
   private sanitizeUser(user: any) {

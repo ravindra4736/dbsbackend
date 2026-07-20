@@ -1,17 +1,22 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ActivityLogsService } from './activity-logs.service';
 import type { GetActivityLogsQuery } from './activity-logs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { PERMISSIONS } from '../common/constants/permissions';
 
+@ApiTags('activity-logs')
+@ApiBearerAuth()
 @Controller('activity-logs')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ActivityLogsController {
   constructor(private readonly activityLogsService: ActivityLogsService) {}
 
   @Get()
-  @Roles('super-admin', 'admin')
+  @RequirePermissions(PERMISSIONS.ACTIVITY_VIEW)
+  @ApiOperation({ summary: 'List activity logs' })
   async findAll(@Query() query: GetActivityLogsQuery) {
     const data = await this.activityLogsService.findAll(query);
     return {

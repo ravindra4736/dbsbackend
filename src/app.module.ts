@@ -8,12 +8,14 @@ import { RolesModule } from './roles/roles.module';
 import { RedisModule } from './redis/redis.module';
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { HealthModule } from './health/health.module';
+import { AuthorizationModule } from './authorization/authorization.module';
 
 @Module({
   imports: [
     ConfigModule,
     PrismaModule,
     RedisModule,
+    AuthorizationModule,
     AuthModule,
     UsersModule,
     RolesModule,
@@ -23,4 +25,4 @@ import { HealthModule } from './health/health.module';
   controllers: [AppController],
   providers: [],
 })
-export class AppModule { }
+export class AppModule {}

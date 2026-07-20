@@ -1,8 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { PermissionResolverService } from '../authorization/permission-resolver.service';
+import { SYSTEM_ROLE_SLUGS } from '../common/constants/roles';
 
 function slugify(text: string): string {
   return text
@@ -12,13 +19,12 @@ function slugify(text: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
-const DEFAULT_ROLE_SLUGS = ['super-admin', 'admin', 'editor', 'author', 'seo-manager'];
-
 @Injectable()
 export class RolesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLogsService: ActivityLogsService,
+    private readonly permissionResolver: PermissionResolverService,
   ) {}
 
   async findAll() {
@@ -39,7 +45,7 @@ export class RolesService {
 
   async create(dto: CreateRoleDto, actorId?: string) {
     const slug = slugify(dto.name);
-    
+
     // Check if role name or slug already exists
     const existing = await this.prisma.role.findFirst({
       where: {
@@ -48,7 +54,9 @@ export class RolesService {
     });
 
     if (existing) {
-      throw new ConflictException('A role with this name or slug already exists');
+      throw new ConflictException(
+        'A role with this name or slug already exists',
+      );
     }
 
     const role = await this.prisma.role.create({
@@ -74,8 +82,14 @@ export class RolesService {
     const role = await this.findOne(id);
 
     // If updating default role name/slug, throw exception to preserve system roles integrity
-    if (DEFAULT_ROLE_SLUGS.includes(role.slug) && dto.name && slugify(dto.name) !== role.slug) {
-      throw new BadRequestException('System default roles cannot have their name or slug modified.');
+    if (
+      (SYSTEM_ROLE_SLUGS as readonly string[]).includes(role.slug) &&
+      dto.name &&
+      slugify(dto.name) !== role.slug
+    ) {
+      throw new BadRequestException(
+        'System default roles cannot have their name or slug modified.',
+      );
     }
 
     const data: any = {};
@@ -85,7 +99,7 @@ export class RolesService {
 
     if (dto.name) {
       const slug = slugify(dto.name);
-      
+
       const existing = await this.prisma.role.findFirst({
         where: {
           id: { not: id },
@@ -94,7 +108,9 @@ export class RolesService {
       });
 
       if (existing) {
-        throw new ConflictException('A role with this name or slug already exists');
+        throw new ConflictException(
+          'A role with this name or slug already exists',
+        );
       }
 
       data.name = dto.name;
@@ -114,6 +130,9 @@ export class RolesService {
       metadata: { oldValues: role, newValues: updatedRole },
     });
 
+    // Role metadata/permission changes should refresh assignee caches
+    await this.permissionResolver.invalidateUsersWithRole(id);
+
     return updatedRole;
   }
 
@@ -121,7 +140,7 @@ export class RolesService {
     const role = await this.findOne(id);
 
     // Protect default roles from deletion
-    if (DEFAULT_ROLE_SLUGS.includes(role.slug)) {
+    if ((SYSTEM_ROLE_SLUGS as readonly string[]).includes(role.slug)) {
       throw new BadRequestException('System default roles cannot be deleted.');
     }
 
@@ -131,7 +150,9 @@ export class RolesService {
     });
 
     if (assignedUsersCount > 0) {
-      throw new BadRequestException('Cannot delete role because it is assigned to one or more users.');
+      throw new BadRequestException(
+        'Cannot delete role because it is assigned to one or more users.',
+      );
     }
 
     await this.prisma.role.delete({
