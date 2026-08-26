@@ -163,7 +163,10 @@ model Media {
   url              String
   width            Int?
   height           Int?
+  title            String?
   altText          String?
+  caption          String?  @db.Text
+  description      String?  @db.Text
   createdBy        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

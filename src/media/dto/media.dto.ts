@@ -41,9 +41,28 @@ export class GetMediaQueryDto {
   sortOrder?: 'asc' | 'desc' = 'desc';
 }
 
+/**
+ * WordPress-style attachment metadata.
+ * Uses media.upload permission (no separate media.update).
+ */
 export class UpdateMediaDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
+  title?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
   altText?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  caption?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string | null;
 }

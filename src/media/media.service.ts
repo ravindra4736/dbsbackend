@@ -37,11 +37,28 @@ const MEDIA_SELECT = {
   url: true,
   width: true,
   height: true,
+  title: true,
   altText: true,
+  caption: true,
+  description: true,
   createdBy: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.MediaSelect;
+
+function titleFromOriginalFilename(originalFilename: string): string {
+  const base = originalFilename.replace(/\.[^.]+$/, '').trim();
+  return base || originalFilename;
+}
+
+function normalizeOptionalText(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
 
 @Injectable()
 export class MediaService {
@@ -127,7 +144,10 @@ export class MediaService {
           url: saved.url,
           width,
           height,
+          title: titleFromOriginalFilename(validated.originalFilename),
           altText: null,
+          caption: null,
+          description: null,
           createdBy: actorId,
         },
         select: MEDIA_SELECT,
@@ -184,6 +204,9 @@ export class MediaService {
       where.OR = [
         { originalFilename: { contains: searchPattern } },
         { filename: { contains: searchPattern } },
+        { title: { contains: searchPattern } },
+        { altText: { contains: searchPattern } },
+        { caption: { contains: searchPattern } },
       ];
     }
 
@@ -242,16 +265,33 @@ export class MediaService {
       throw new NotFoundException('Media not found.');
     }
 
-    if (dto.altText === undefined) {
+    const data: Prisma.MediaUpdateInput = {};
+    const changedFields: string[] = [];
+
+    if (dto.title !== undefined) {
+      data.title = normalizeOptionalText(dto.title) ?? null;
+      changedFields.push('title');
+    }
+    if (dto.altText !== undefined) {
+      data.altText = normalizeOptionalText(dto.altText) ?? null;
+      changedFields.push('altText');
+    }
+    if (dto.caption !== undefined) {
+      data.caption = normalizeOptionalText(dto.caption) ?? null;
+      changedFields.push('caption');
+    }
+    if (dto.description !== undefined) {
+      data.description = normalizeOptionalText(dto.description) ?? null;
+      changedFields.push('description');
+    }
+
+    if (changedFields.length === 0) {
       return this.toResponse(existing);
     }
 
-    const altText =
-      dto.altText === null ? null : String(dto.altText).trim() || null;
-
     const media = await this.prisma.media.update({
       where: { id },
-      data: { altText },
+      data,
       select: MEDIA_SELECT,
     });
 
@@ -262,7 +302,8 @@ export class MediaService {
       resourceId: media.id,
       metadata: {
         id: media.id,
-        changedFields: ['altText'],
+        changedFields,
+        title: media.title,
         altText: media.altText,
       },
     });
@@ -310,7 +351,10 @@ export class MediaService {
     url: string;
     width: number | null;
     height: number | null;
+    title: string | null;
     altText: string | null;
+    caption: string | null;
+    description: string | null;
     createdBy: string | null;
     createdAt: Date;
     updatedAt: Date;
@@ -325,7 +369,10 @@ export class MediaService {
       url: media.url,
       width: media.width,
       height: media.height,
+      title: media.title,
       altText: media.altText,
+      caption: media.caption,
+      description: media.description,
       createdBy: media.createdBy,
       createdAt: media.createdAt,
       updatedAt: media.updatedAt,
