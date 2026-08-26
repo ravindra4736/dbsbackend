@@ -119,6 +119,16 @@ server {
 }
 ```
 
+### Media Library upload limits (Phase 5)
+
+Add to the Nginx `http` or `server` block that fronts the API/admin:
+
+```nginx
+client_max_body_size 10M;
+```
+
+Persistence: keep `UPLOAD_PATH` (default `uploads/`) outside deploy wipe paths and back it up alongside MySQL. Files must survive PM2 restarts and app redeploys.
+
 ### Nginx Commands
 
 ```bash

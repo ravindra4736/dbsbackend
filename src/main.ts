@@ -7,6 +7,7 @@ import {
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { join } from 'path';
 import { ConfigService } from '@nestjs/config';
@@ -14,11 +15,14 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { MAX_UPLOAD_BYTES } from './media/media.validation';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      bodyLimit: MAX_UPLOAD_BYTES,
+    }),
   );
 
   // Enable graceful shutdown hooks as soon as the Nest app is created.
@@ -49,11 +53,22 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Static Assets Folder (uploads/)
+  // Multipart uploads (Media Library) — per-file limits enforced in validation
+  await app.register(multipart, {
+    limits: {
+      fileSize: MAX_UPLOAD_BYTES,
+      files: 1,
+      fields: 5,
+    },
+  });
+
+  // Static Assets Folder — root follows UPLOAD_PATH
+  const uploadPath = configService.get<string>('app.uploadPath') || 'uploads';
   await app.register(fastifyStatic, {
-    root: join(__dirname, '..', 'uploads'),
+    root: join(process.cwd(), uploadPath),
     prefix: '/uploads/',
-    wildcard: false,
+    // Required so nested keys like /uploads/media/{file} are served
+    wildcard: true,
   });
 
   // Global Route Prefix for API endpoints

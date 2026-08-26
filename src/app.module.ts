@@ -11,12 +11,15 @@ import { HealthModule } from './health/health.module';
 import { AuthorizationModule } from './authorization/authorization.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CmsModule } from './cms/cms.module';
+import { StorageModule } from './common/storage/storage.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
     ConfigModule,
     PrismaModule,
     RedisModule,
+    StorageModule,
     AuthorizationModule,
     AuthModule,
     UsersModule,
@@ -24,6 +27,7 @@ import { CmsModule } from './cms/cms.module';
     ActivityLogsModule,
     DashboardModule,
     CmsModule,
+    MediaModule,
     HealthModule,
   ],
   controllers: [AppController],

@@ -152,6 +152,28 @@ model Page {
   @@map("pages")
 }
 
+model Media {
+  id               String   @id @default(uuid())
+  originalFilename String
+  filename         String
+  mimeType         String
+  extension        String
+  size             Int
+  storageKey       String
+  url              String
+  width            Int?
+  height           Int?
+  altText          String?
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([mimeType])
+  @@index([createdAt])
+  @@index([createdBy])
+  @@map("media")
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
