@@ -1,6 +1,6 @@
 import {
-  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,9 +9,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { RedisService } from '../redis/redis.service';
 import { PermissionResolverService } from '../authorization/permission-resolver.service';
+import { SUPER_ADMIN_ROLES } from '../common/constants/roles';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { GetUsersQueryDto } from './dto/get-users-query.dto';
+
+type RoleGuardFields = {
+  slug: string;
+  isProtected: boolean;
+};
 
 @Injectable()
 export class UsersService {
@@ -22,7 +28,11 @@ export class UsersService {
     private readonly permissionResolver: PermissionResolverService,
   ) {}
 
-  async create(dto: CreateUserDto, creatorId?: string) {
+  async create(
+    dto: CreateUserDto,
+    creatorId?: string,
+    actorRoles: string[] = [],
+  ) {
     const email = dto.email.toLowerCase();
 
     // Check email uniqueness
@@ -42,6 +52,8 @@ export class UsersService {
     if (roles.length !== dto.roleIds.length) {
       throw new NotFoundException('One or more specified roles not found.');
     }
+
+    this.assertProtectedRoleMutation(actorRoles, [], roles);
 
     const passwordHash = await argon2.hash(dto.password);
 
@@ -206,14 +218,21 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, dto: UpdateUserDto, updaterId?: string) {
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    updaterId?: string,
+    actorRoles: string[] = [],
+  ) {
     const user = await this.findOne(id);
 
     const oldValues = {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      roles: user.userRoles.map((ur) => ur.role.slug),
+      roles: Array.isArray(user.roles)
+        ? user.roles.map((role: { slug: string }) => role.slug)
+        : [],
       status: user.status,
     };
 
@@ -253,6 +272,16 @@ export class UsersService {
         throw new NotFoundException('One or more specified roles not found.');
       }
 
+      const currentAssignments = await this.prisma.userRole.findMany({
+        where: { userId: id },
+        include: { role: true },
+      });
+      this.assertProtectedRoleMutation(
+        actorRoles,
+        currentAssignments.map((row) => row.role),
+        roles,
+      );
+
       // Delete existing user roles
       await this.prisma.userRole.deleteMany({
         where: { userId: id },
@@ -285,6 +314,16 @@ export class UsersService {
         },
       },
     });
+
+    // Deactivate / suspend must kill active sessions immediately
+    if (
+      dto.status &&
+      (dto.status === 'INACTIVE' || dto.status === 'SUSPENDED') &&
+      oldValues.status !== dto.status
+    ) {
+      await this.revokeAllUserSessions(id);
+      await this.permissionResolver.invalidateUser(id);
+    }
 
     const newValues = {
       email: updatedUser.email,
@@ -345,11 +384,36 @@ export class UsersService {
   async updatePassword(id: string, newPasswordHash: string) {
     await this.prisma.user.update({
       where: { id },
-      data: { passwordHash: newPasswordHash },
+      data: {
+        passwordHash: newPasswordHash,
+        passwordChangedAt: new Date(),
+      },
     });
 
     // Revoke all active sessions (DB + Redis, same strategy as logout-all)
     await this.revokeAllUserSessions(id);
+  }
+
+  /**
+   * Admin-initiated password reset for another user.
+   * Hashes with argon2 (same as AuthService), revokes sessions, logs activity.
+   */
+  async adminResetPassword(id: string, newPassword: string, actorId: string) {
+    await this.findOne(id);
+
+    const passwordHash = await argon2.hash(newPassword);
+    await this.updatePassword(id, passwordHash);
+    await this.permissionResolver.invalidateUser(id);
+
+    await this.activityLogsService.log({
+      userId: actorId,
+      action: 'ADMIN_RESET_PASSWORD',
+      resource: 'User',
+      resourceId: id,
+      metadata: { message: 'Password reset by administrator' },
+    });
+
+    return { message: 'Password reset successfully' };
   }
 
   async updateLoginMetadata(id: string, ip: string) {
@@ -373,6 +437,54 @@ export class UsersService {
     });
 
     await this.redisService.delByPattern(`session:active:${userId}:*`);
+  }
+
+  /**
+   * Non–super-admins cannot assign or remove protected roles
+   * (isProtected flag and/or super-admin slug).
+   */
+  private isProtectedRole(role: RoleGuardFields): boolean {
+    return (
+      role.isProtected ||
+      (SUPER_ADMIN_ROLES as readonly string[]).includes(role.slug)
+    );
+  }
+
+  private assertProtectedRoleMutation(
+    actorRoles: string[] | undefined,
+    currentRoles: RoleGuardFields[],
+    nextRoles: RoleGuardFields[],
+  ): void {
+    if (this.permissionResolver.isSuperAdmin(actorRoles)) {
+      return;
+    }
+
+    const currentProtected = new Set(
+      currentRoles
+        .filter((role) => this.isProtectedRole(role))
+        .map((role) => role.slug),
+    );
+    const nextProtected = new Set(
+      nextRoles
+        .filter((role) => this.isProtectedRole(role))
+        .map((role) => role.slug),
+    );
+
+    for (const slug of nextProtected) {
+      if (!currentProtected.has(slug)) {
+        throw new ForbiddenException(
+          `You cannot assign the protected role "${slug}".`,
+        );
+      }
+    }
+
+    for (const slug of currentProtected) {
+      if (!nextProtected.has(slug)) {
+        throw new ForbiddenException(
+          `You cannot remove the protected role "${slug}".`,
+        );
+      }
+    }
   }
 
   private sanitizeUser(user: any) {

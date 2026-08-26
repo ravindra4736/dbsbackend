@@ -15,6 +15,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { GetUsersQueryDto } from './dto/get-users-query.dto';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -68,11 +69,42 @@ export class UsersController {
     @Body() dto: CreateUserDto,
     @User() currentUser: AuthenticatedUser,
   ) {
-    const data = await this.usersService.create(dto, currentUser.userId);
+    const data = await this.usersService.create(
+      dto,
+      currentUser.userId,
+      currentUser.roles,
+    );
     return {
       success: true,
       message: 'User created successfully',
       data,
+    };
+  }
+
+  @Post(':id/reset-password')
+  @RequirePermissions(PERMISSIONS.USERS_UPDATE)
+  @ApiOperation({ summary: 'Admin reset password for a user' })
+  async resetPassword(
+    @Param('id') id: string,
+    @Body() dto: AdminResetPasswordDto,
+    @User() currentUser: AuthenticatedUser,
+  ) {
+    if (currentUser.userId === id) {
+      throw new ForbiddenException(
+        'You cannot reset your own password via this endpoint. Use the forgot-password flow.',
+      );
+    }
+
+    const data = await this.usersService.adminResetPassword(
+      id,
+      dto.password,
+      currentUser.userId,
+    );
+
+    return {
+      success: true,
+      message: data.message,
+      data: null,
     };
   }
 
@@ -97,14 +129,18 @@ export class UsersController {
       );
     }
 
-    // Role / status changes require users.update (not self-service)
     if ((dto.roleIds || dto.status) && !canManage) {
       throw new ForbiddenException(
         'Access denied. You cannot change roles or status.',
       );
     }
 
-    const data = await this.usersService.update(id, dto, currentUser.userId);
+    const data = await this.usersService.update(
+      id,
+      dto,
+      currentUser.userId,
+      currentUser.roles,
+    );
     return {
       success: true,
       message: 'User updated successfully',

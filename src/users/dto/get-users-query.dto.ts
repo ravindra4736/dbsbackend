@@ -1,5 +1,14 @@
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { UserStatus } from '@prisma/client';
 
 export class GetUsersQueryDto {
   @IsOptional()
@@ -29,10 +38,10 @@ export class GetUsersQueryDto {
   sortOrder?: 'asc' | 'desc' = 'desc';
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 
   @IsOptional()
-  @IsString()
+  @IsUUID('4')
   roleId?: string;
 }
