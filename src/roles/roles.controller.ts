@@ -6,12 +6,15 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
+import { GetRolesQueryDto } from './dto/get-roles-query.dto';
+import { AssignPermissionsDto } from './dto/assign-permissions.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -29,8 +32,8 @@ export class RolesController {
   @Get()
   @RequirePermissions(PERMISSIONS.ROLES_VIEW)
   @ApiOperation({ summary: 'List roles' })
-  async findAll() {
-    const data = await this.rolesService.findAll();
+  async findAll(@Query() query: GetRolesQueryDto) {
+    const data = await this.rolesService.findAll(query);
     return {
       success: true,
       message: 'Roles retrieved successfully',
@@ -57,7 +60,11 @@ export class RolesController {
     @Body() dto: CreateRoleDto,
     @User() currentUser: AuthenticatedUser,
   ) {
-    const data = await this.rolesService.create(dto, currentUser.userId);
+    const data = await this.rolesService.create(
+      dto,
+      currentUser.userId,
+      currentUser.roles || [],
+    );
     return {
       success: true,
       message: 'Role created successfully',
@@ -73,10 +80,36 @@ export class RolesController {
     @Body() dto: UpdateRoleDto,
     @User() currentUser: AuthenticatedUser,
   ) {
-    const data = await this.rolesService.update(id, dto, currentUser.userId);
+    const data = await this.rolesService.update(
+      id,
+      dto,
+      currentUser.userId,
+      currentUser.roles || [],
+    );
     return {
       success: true,
       message: 'Role updated successfully',
+      data,
+    };
+  }
+
+  @Put(':id/permissions')
+  @RequirePermissions(PERMISSIONS.ROLES_UPDATE, PERMISSIONS.PERMISSIONS_ASSIGN)
+  @ApiOperation({ summary: 'Replace role permissions' })
+  async assignPermissions(
+    @Param('id') id: string,
+    @Body() dto: AssignPermissionsDto,
+    @User() currentUser: AuthenticatedUser,
+  ) {
+    const data = await this.rolesService.assignPermissions(
+      id,
+      dto.permissionIds,
+      currentUser.userId,
+      currentUser.roles || [],
+    );
+    return {
+      success: true,
+      message: 'Role permissions updated successfully',
       data,
     };
   }

@@ -130,8 +130,35 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
+model Page {
+  id             String     @id @default(uuid())
+  title          String
+  slug           String     @unique
+  content        String     @db.LongText
+  status         PageStatus @default(DRAFT)
+  publishedAt    DateTime?
+  seoTitle       String?
+  seoDescription String?    @db.Text
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  @@index([status])
+  @@index([publishedAt])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("pages")
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
   SUSPENDED
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
 }

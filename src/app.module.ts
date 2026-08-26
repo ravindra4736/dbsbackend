@@ -9,6 +9,8 @@ import { RedisModule } from './redis/redis.module';
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { HealthModule } from './health/health.module';
 import { AuthorizationModule } from './authorization/authorization.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { CmsModule } from './cms/cms.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { AuthorizationModule } from './authorization/authorization.module';
     UsersModule,
     RolesModule,
     ActivityLogsModule,
+    DashboardModule,
+    CmsModule,
     HealthModule,
   ],
   controllers: [AppController],
