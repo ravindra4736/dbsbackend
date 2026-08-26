@@ -119,15 +119,17 @@ server {
 }
 ```
 
-### Media Library upload limits (Phase 5)
+### Media Library upload limits
 
 Add to the Nginx `http` or `server` block that fronts the API/admin:
 
 ```nginx
-client_max_body_size 10M;
+client_max_body_size 100M;
 ```
 
 Persistence: keep `UPLOAD_PATH` (default `uploads/`) outside deploy wipe paths and back it up alongside MySQL. Files must survive PM2 restarts and app redeploys.
+
+Supported uploads (server-validated): images (JPEG/PNG/WebP/GIF/AVIF/SVG/BMP/TIFF/ICO/HEIC), video (MP4/WebM/MOV), audio (MP3/M4A/WAV/OGG/AAC), documents (PDF/Office/OpenDocument/TXT/CSV). Executables, HTML/JS, and generic archives remain blocked. SVG is accepted only after rejecting active content (`script`, event handlers, etc.).
 
 ### Nginx Commands
 

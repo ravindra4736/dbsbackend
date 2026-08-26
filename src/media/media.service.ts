@@ -13,7 +13,9 @@ import { GetMediaQueryDto, UpdateMediaDto } from './dto/media.dto';
 import {
   DOCUMENT_MIME_TYPES,
   IMAGE_MIME_TYPES,
-  isImageMime,
+  VIDEO_MIME_TYPES,
+  AUDIO_MIME_TYPES,
+  isRasterImageMime,
   validateUploadBuffer,
 } from './media.validation';
 
@@ -71,25 +73,40 @@ export class MediaService {
     let writtenStorageKey: string | null = null;
 
     try {
-      if (isImageMime(validated.mimeType)) {
+      if (isRasterImageMime(validated.mimeType)) {
+        const softDimensionMimes = new Set([
+          'image/heic',
+          'image/heif',
+          'image/bmp',
+          'image/tiff',
+        ]);
         try {
           const meta = await sharp(validated.buffer, {
             failOn: 'error',
           }).metadata();
           if (!meta.width || !meta.height) {
-            throw new BadRequestException(
-              'Unable to read image dimensions.',
-            );
+            if (!softDimensionMimes.has(validated.mimeType)) {
+              throw new BadRequestException(
+                'Unable to read image dimensions.',
+              );
+            }
+          } else {
+            width = meta.width;
+            height = meta.height;
           }
-          width = meta.width;
-          height = meta.height;
         } catch (error) {
           if (error instanceof BadRequestException) {
             throw error;
           }
-          throw new BadRequestException(
-            'Invalid or corrupt image file.',
-          );
+          if (softDimensionMimes.has(validated.mimeType)) {
+            this.logger.warn(
+              `Image dimension extraction skipped for ${validated.mimeType}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          } else {
+            throw new BadRequestException('Invalid or corrupt image file.');
+          }
         }
       }
 
@@ -154,6 +171,10 @@ export class MediaService {
 
     if (query.type === 'image') {
       where.mimeType = { in: [...IMAGE_MIME_TYPES] };
+    } else if (query.type === 'video') {
+      where.mimeType = { in: [...VIDEO_MIME_TYPES] };
+    } else if (query.type === 'audio') {
+      where.mimeType = { in: [...AUDIO_MIME_TYPES] };
     } else if (query.type === 'document') {
       where.mimeType = { in: [...DOCUMENT_MIME_TYPES] };
     }

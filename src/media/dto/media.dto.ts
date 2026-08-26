@@ -28,8 +28,8 @@ export class GetMediaQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['image', 'document'])
-  type?: 'image' | 'document';
+  @IsIn(['image', 'video', 'audio', 'document'])
+  type?: 'image' | 'video' | 'audio' | 'document';
 
   @IsOptional()
   @IsString()

@@ -73,7 +73,7 @@ export class MediaController {
         /file.*too.*large/i.test(String(error?.message || ''))
       ) {
         throw new PayloadTooLargeException(
-          'File exceeds the maximum upload size of 10 MB.',
+          'File exceeds the maximum upload size of 100 MB.',
         );
       }
       throw error;
@@ -94,7 +94,7 @@ export class MediaController {
         /file.*too.*large/i.test(String(error?.message || ''))
       ) {
         throw new PayloadTooLargeException(
-          'File exceeds the maximum upload size of 10 MB.',
+          'File exceeds the maximum upload size of 100 MB.',
         );
       }
       throw error;
